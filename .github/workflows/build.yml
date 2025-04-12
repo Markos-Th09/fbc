@@ -1,0 +1,74 @@
+name: Build
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  prepare-boostrap:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download fbc
+        run: wget "https://downloads.sourceforge.net/project/fbc/FreeBASIC-1.10.1/Binaries-Linux/FreeBASIC-1.10.1-ubuntu-22.04-x86_64.tar.xz?ts=gAAAAABn-nbqNWBJRn-2hiUhW09p48sZW7idBDilAgnHPSt9tU947BPgVELMaFh5SDvwJpYKLnPc1jSK_YIQ4EAkV2OR1yjSeQ%3D%3D&r=https%3A%2F%2Fsourceforge.net%2Fprojects%2Ffbc%2Ffiles%2FFreeBASIC-1.10.1%2FBinaries-Linux%2FFreeBASIC-1.10.1-ubuntu-22.04-x86_64.tar.xz%2Fdownload" -O FreeBASIC-1.10.1-ubuntu-22.04-x86_64.tar.xz
+
+      - name: Install fbc
+        run: |
+          tar -xf FreeBASIC-1.10.1-ubuntu-22.04-x86_64.tar.xz
+          cd FreeBASIC-1.10.1-ubuntu-22.04-x86_64
+          sudo ./install.sh -i
+
+      - name: Bootstrap fbc
+        run: |
+          mkdir -p bootstrap/darwin-${{ matrix.arch }}
+          fbc src/compiler/*.bas -m fbc -i inc -r -v -target darwin-${{ matrix.arch }}
+          mv src/compiler/*.c bootstrap/darwin-${{ matrix.arch }}
+          tar -cavf freebasic-bootstrap-darwin-${{ matrix.arch }}.tar.xz bootstrap/darwin-${{ matrix.arch }}
+
+      - name: Upload fbc
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebasic-bootstrap-darwin-${{ matrix.arch }}.tar.xz
+          path: freebasic-bootstrap-darwin-${{ matrix.arch }}.tar.xz
+
+  build:
+    needs: prepare-boostrap
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: 13
+            arch: x86_64
+          - version: 14
+            arch: aarch64
+          - version: 15
+            arch: aarch64
+    runs-on: macos-${{ matrix.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download fbc bootstrap
+        uses: actions/download-artifact@v4
+        with:
+          name: freebasic-bootstrap-darwin-${{ matrix.arch }}.tar.xz
+
+      - name: Build
+        run: |
+          tar -xvf freebasic-bootstrap-darwin-${{ matrix.arch }}.tar.xz
+          make bootstrap -j4
+
+      - name: Make dist
+        run: |
+          make bindist
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebasic-${{ matrix.version }}-${{ matrix.arch }}.tar.xz
+          path: FreeBASIC-*-darwin-${{ matrix.arch }}.tar.xz
